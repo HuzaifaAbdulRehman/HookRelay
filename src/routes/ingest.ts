@@ -13,6 +13,7 @@ const DELIVERY_ID_HEADER = 'x-github-delivery';
 export interface IngestOptions {
   db: Db;
   bodyLimit: number;
+  onAccepted?: ((eventId: string) => Promise<void>) | undefined;
 }
 
 function headerString(value: string | string[] | undefined): string | null {
@@ -56,6 +57,14 @@ export const ingestRoutes: FastifyPluginAsync<IngestOptions> = async (app, opts)
         headers: request.headers as Record<string, string>,
         body: raw,
       });
+
+      // Only a genuinely new event is queued. A redelivery of one already in
+      // flight would double-deliver, and re-driving a dead-lettered event is
+      // what replay is for. The gap between this commit and the enqueue is the
+      // sweeper's job, not the producer's.
+      if (event.inserted && opts.onAccepted !== undefined) {
+        await opts.onAccepted(event.id);
+      }
 
       // Accepted, not processed. Delivery happens after the response, and the
       // producer is told nothing about whether it eventually succeeded.

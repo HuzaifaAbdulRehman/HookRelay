@@ -6,9 +6,10 @@ import { ingestRoutes } from './routes/ingest.js';
 export interface ServerDeps {
   config: Config;
   db: Db;
+  onAccepted?: ((eventId: string) => Promise<void>) | undefined;
 }
 
-export function buildServer({ config, db }: ServerDeps): FastifyInstance {
+export function buildServer({ config, db, onAccepted }: ServerDeps): FastifyInstance {
   const app = Fastify({
     logger: { level: config.LOG_LEVEL },
     bodyLimit: config.INGEST_BODY_LIMIT_BYTES,
@@ -21,7 +22,7 @@ export function buildServer({ config, db }: ServerDeps): FastifyInstance {
 
   // Registered as its own plugin so the raw-body content-type parsers stay
   // encapsulated to the ingest routes.
-  app.register(ingestRoutes, { db, bodyLimit: config.INGEST_BODY_LIMIT_BYTES });
+  app.register(ingestRoutes, { db, bodyLimit: config.INGEST_BODY_LIMIT_BYTES, onAccepted });
 
   return app;
 }
