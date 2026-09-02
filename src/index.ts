@@ -2,6 +2,7 @@ import { loadConfig } from './config.js';
 import { createPool } from './db.js';
 import { createDeliveryAgent } from './delivery/client.js';
 import { createDeliveryQueue, enqueueDelivery } from './delivery/queue.js';
+import { startSweeper } from './delivery/sweeper.js';
 import { createDeliveryWorker } from './delivery/worker.js';
 import { buildServer } from './server.js';
 
@@ -16,7 +17,12 @@ const app = buildServer({
   config,
   db,
   onAccepted: async (eventId) => enqueueDelivery(queue, { eventId, attempt: 1 }),
+  onReplayed: async (eventId, attempt) => enqueueDelivery(queue, { eventId, attempt }),
 });
+
+const sweeper = startSweeper({ db, queue }, 15_000, (err) =>
+  app.log.error({ err }, 'sweep failed'),
+);
 
 const worker = createDeliveryWorker(
   { db, agent, queue },
@@ -34,6 +40,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     app.log.info({ signal }, 'shutting down');
     // The worker closes first so in-flight deliveries finish before the pool
     // they need is torn down.
+    sweeper.stop();
     Promise.resolve()
       .then(() => worker.close())
       .then(() => app.close())

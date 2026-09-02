@@ -33,6 +33,12 @@ const EnvSchema = z.object({
    * indistinguishable from a destination failure: it burns the retry ladder and
    * dead-letters events that were never actually attempted.
    */
+  /**
+   * Guards the management routes. There is no default: a shipped default key is
+   * worse than none, so without this the routes are not registered at all and
+   * replay is simply unavailable rather than open.
+   */
+  API_KEY: z.string().min(16).optional(),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(10),
   DB_POOL_MAX: z.coerce.number().int().positive().default(20),
   ALLOW_PRIVATE_DESTINATIONS: z
