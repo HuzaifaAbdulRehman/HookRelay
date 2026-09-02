@@ -7,6 +7,7 @@ import { countEventsForEndpoint, findEventById } from '../src/repository/events.
 import { buildServer } from '../src/server.js';
 import { SIGNATURE_HEADER, sign } from '../src/signature.js';
 import { createTestPool, truncateAll } from './helpers/db.js';
+import { TEST_DATABASE_URL } from './helpers/global-setup.js';
 
 const SECRET = 'a-signing-secret';
 
@@ -16,7 +17,7 @@ function configWith(overrides: Record<string, string> = {}): Config {
   return loadConfig({
     NODE_ENV: 'test',
     LOG_LEVEL: 'silent',
-    DATABASE_URL: 'postgres://hookrelay:hookrelay@localhost:5432/hookrelay_test',
+    DATABASE_URL: TEST_DATABASE_URL,
     REDIS_URL: 'redis://localhost:6379',
     ...overrides,
   });

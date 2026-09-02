@@ -4,10 +4,23 @@ import pg from 'pg';
 
 const execFileAsync = promisify(execFile);
 
-const ADMIN_URL = 'postgres://hookrelay:hookrelay@localhost:5432/postgres';
 const TEST_DB = 'hookrelay_test';
 
-export const TEST_DATABASE_URL = `postgres://hookrelay:hookrelay@localhost:5432/${TEST_DB}`;
+// Derived from DATABASE_URL so the harness follows wherever the database is,
+// rather than assuming localhost and these credentials.
+const base = new URL(
+  process.env.DATABASE_URL ?? 'postgres://hookrelay:hookrelay@localhost:5432/hookrelay',
+);
+
+function withDatabase(name: string): string {
+  const url = new URL(base.toString());
+  url.pathname = `/${name}`;
+  return url.toString();
+}
+
+const ADMIN_URL = withDatabase('postgres');
+
+export const TEST_DATABASE_URL = withDatabase(TEST_DB);
 
 /**
  * Migrations run through the same CLI the app uses rather than a bespoke

@@ -3,11 +3,12 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import { buildServer } from '../src/server.js';
 import { createTestPool } from './helpers/db.js';
+import { TEST_DATABASE_URL } from './helpers/global-setup.js';
 
 const config = loadConfig({
   NODE_ENV: 'test',
   LOG_LEVEL: 'silent',
-  DATABASE_URL: 'postgres://hookrelay:hookrelay@localhost:5432/hookrelay_test',
+  DATABASE_URL: TEST_DATABASE_URL,
   REDIS_URL: 'redis://localhost:6379',
 });
 
