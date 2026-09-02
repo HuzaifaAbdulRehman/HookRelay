@@ -67,6 +67,10 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
   `);
 }
 
+/**
+ * Destroys every row, which is the honest inverse of creating the schema but is
+ * not a rollback anyone should reach for once this has run anywhere real.
+ */
 export async function down(pgm: MigrationBuilder): Promise<void> {
   pgm.sql('DROP TABLE IF EXISTS delivery_attempts;');
   pgm.sql('DROP TABLE IF EXISTS events;');

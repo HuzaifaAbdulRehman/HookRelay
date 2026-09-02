@@ -17,9 +17,13 @@ export default async function setup(): Promise<void> {
   const admin = new pg.Client({ connectionString: ADMIN_URL });
   await admin.connect();
   try {
-    const { rows } = await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [TEST_DB]);
-    if (rows.length === 0) {
+    // Postgres has no CREATE DATABASE IF NOT EXISTS, and a SELECT-then-CREATE
+    // races a second runner. The duplicate-database error is the check.
+    // TEST_DB is a module constant; identifiers cannot be parameterised.
+    try {
       await admin.query(`CREATE DATABASE ${TEST_DB}`);
+    } catch (err) {
+      if ((err as { code?: string }).code !== '42P04') throw err;
     }
   } finally {
     await admin.end();
