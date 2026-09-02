@@ -127,16 +127,27 @@ export async function claimForDelivery(
   };
 }
 
-/** Puts a dead-lettered event back at the start of a fresh ladder. */
-export async function replayEvent(db: Db, eventId: string): Promise<boolean> {
-  const { rows } = await db.query(
+/**
+ * Puts a dead-lettered event back at the start of a fresh ladder.
+ *
+ * The affected-row count is the decision, so two concurrent replays cannot both
+ * succeed, and the attempt number comes back from the same statement rather
+ * than a second read a worker could interleave with.
+ */
+export async function replayEvent(
+  db: Db,
+  eventId: string,
+): Promise<{ nextAttemptNumber: number } | null> {
+  const { rows } = await db.query<{ attempt_count: number }>(
     `UPDATE events
         SET status = 'pending', failed_streak = 0, next_attempt_at = NULL, claimed_at = NULL
       WHERE id = $1 AND status IN ('dlq', 'failed')
-      RETURNING id`,
+      RETURNING attempt_count`,
     [eventId],
   );
-  return rows.length > 0;
+
+  const row = rows[0];
+  return row === undefined ? null : { nextAttemptNumber: row.attempt_count + 1 };
 }
 
 export interface DueEvent {

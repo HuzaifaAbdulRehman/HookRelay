@@ -50,14 +50,14 @@ export const eventRoutes: FastifyPluginAsync<EventRoutesOptions> = async (app, o
   app.post<{ Params: { id: string } }>('/events/:id/replay', async (request, reply) => {
     if (!UUID.test(request.params.id)) return reply.code(404).send({ error: 'not found' });
 
-    if (!(await replayEvent(opts.db, request.params.id))) {
+    const replayed = await replayEvent(opts.db, request.params.id);
+    if (replayed === null) {
       // Either it does not exist, or it is delivered or already in flight.
       return reply.code(409).send({ error: 'not replayable' });
     }
 
-    const event = await findEventById(opts.db, request.params.id);
-    if (event !== null && opts.onReplayed !== undefined) {
-      await opts.onReplayed(event.id, event.attemptCount + 1);
+    if (opts.onReplayed !== undefined) {
+      await opts.onReplayed(request.params.id, replayed.nextAttemptNumber);
     }
 
     return reply.code(202).send({ id: request.params.id, status: 'pending' });

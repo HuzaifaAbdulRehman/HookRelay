@@ -132,7 +132,7 @@ describe('replay', () => {
     const eventId = await deadLetter();
     expect((await findEventById(db, eventId))?.status).toBe('dlq');
 
-    expect(await replayEvent(db, eventId)).toBe(true);
+    expect(await replayEvent(db, eventId)).toEqual({ nextAttemptNumber: 4 });
 
     const event = await findEventById(db, eventId);
     expect(event?.status).toBe('pending');
@@ -172,7 +172,7 @@ describe('replay', () => {
       { kind: 'delivered' },
     );
 
-    expect(await replayEvent(db, eventId)).toBe(false);
+    expect(await replayEvent(db, eventId)).toBeNull();
   });
 });
 
