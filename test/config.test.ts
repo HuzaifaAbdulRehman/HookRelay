@@ -27,4 +27,16 @@ describe('loadConfig', () => {
   it('rejects a log level outside the supported set', () => {
     expect(() => loadConfig({ ...required, LOG_LEVEL: 'chatty' })).toThrow(/LOG_LEVEL/);
   });
+
+  it('keeps the outbound address guard on unless it is turned off by name', () => {
+    expect(loadConfig(required).ALLOW_PRIVATE_DESTINATIONS).toBe(false);
+    expect(
+      loadConfig({ ...required, ALLOW_PRIVATE_DESTINATIONS: 'true' }).ALLOW_PRIVATE_DESTINATIONS,
+    ).toBe(true);
+    // Anything other than the two literals is a typo, and a typo must not
+    // silently disable a security control.
+    expect(() => loadConfig({ ...required, ALLOW_PRIVATE_DESTINATIONS: 'yes' })).toThrow(
+      /ALLOW_PRIVATE_DESTINATIONS/,
+    );
+  });
 });

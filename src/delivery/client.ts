@@ -44,7 +44,19 @@ export interface DeliveryRequest {
  * is no window in which it can change. It also handles redirects for free,
  * since every hop opens a new socket through this hook.
  */
-export function createDeliveryAgent(connectTimeoutMs = 5_000): Agent {
+export interface AgentOptions {
+  connectTimeoutMs?: number;
+  /** Development only. See ALLOW_PRIVATE_DESTINATIONS. */
+  allowPrivateAddresses?: boolean;
+}
+
+export function createDeliveryAgent(options: AgentOptions = {}): Agent {
+  const connectTimeoutMs = options.connectTimeoutMs ?? 5_000;
+
+  if (options.allowPrivateAddresses === true) {
+    return new Agent({ connect: { timeout: connectTimeoutMs } });
+  }
+
   const connector = buildConnector({
     timeout: connectTimeoutMs,
     lookup: guardedLookup as never,

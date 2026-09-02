@@ -89,6 +89,37 @@ describe('the guard refuses to open the socket', () => {
   });
 });
 
+describe('the development escape hatch', () => {
+  it('is off unless asked for', async () => {
+    const agent = createDeliveryAgent();
+
+    const outcome = await deliver(agent, {
+      url: `http://127.0.0.1:${port}/hook`,
+      body,
+      headers,
+      timeoutMs: 2_000,
+    });
+
+    expect(outcome.status).toBeNull();
+    await agent.close();
+  });
+
+  it('reaches a private address only when explicitly enabled', async () => {
+    handler = (_req, res) => res.writeHead(200).end('ok');
+    const agent = createDeliveryAgent({ allowPrivateAddresses: true });
+
+    const outcome = await deliver(agent, {
+      url: `http://127.0.0.1:${port}/hook`,
+      body,
+      headers,
+      timeoutMs: 2_000,
+    });
+
+    expect(outcome.status).toBe(200);
+    await agent.close();
+  });
+});
+
 describe('reporting an outcome', () => {
   it('reports a 2xx with the body snippet', async () => {
     handler = (_req, res) => {

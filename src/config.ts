@@ -20,6 +20,16 @@ const EnvSchema = z.object({
     .int()
     .positive()
     .default(5 * 1024 * 1024),
+  /**
+   * Turns off the outbound address guard so deliveries can reach a destination
+   * on localhost. Required to demo on one machine, and unsafe anywhere a
+   * destination URL can be supplied by someone else, because it re-opens every
+   * SSRF path the guard exists to close.
+   */
+  ALLOW_PRIVATE_DESTINATIONS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
