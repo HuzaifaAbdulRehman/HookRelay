@@ -21,7 +21,7 @@ Needs Node 24+ and Docker.
 ```sh
 cp .env.example .env
 npm install
-docker compose up -d
+docker compose up -d --wait
 npm run dev
 ```
 
