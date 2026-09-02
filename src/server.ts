@@ -1,6 +1,8 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
+import { dashboardRoutes } from './routes/dashboard.js';
+import { endpointRoutes } from './routes/endpoints.js';
 import { eventRoutes } from './routes/events.js';
 import { ingestRoutes } from './routes/ingest.js';
 
@@ -29,7 +31,18 @@ export function buildServer({ config, db, onAccepted, onReplayed }: ServerDeps):
   // Without a key the management routes do not exist, rather than existing
   // behind a default one.
   if (config.API_KEY !== undefined) {
-    app.register(eventRoutes, { db, apiKey: config.API_KEY, onReplayed });
+    const apiKey = config.API_KEY;
+    app.register(eventRoutes, { db, apiKey, onReplayed });
+    app.register(async (scope) => {
+      scope.addHook('onRequest', async (request, reply) => {
+        const header = request.headers.authorization;
+        if (typeof header !== 'string' || !header.startsWith(`Bearer ${apiKey}`)) {
+          return reply.code(401).send({ error: 'unauthorised' });
+        }
+      });
+      await scope.register(endpointRoutes, { db });
+    });
+    app.register(dashboardRoutes, { db, apiKey, onReplayed });
   }
 
   return app;
