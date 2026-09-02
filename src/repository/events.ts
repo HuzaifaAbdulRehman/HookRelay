@@ -75,8 +75,14 @@ interface EventRow {
   received_at: Date;
 }
 
+const EVENT_COLUMNS =
+  'id, endpoint_id, provider_event_id, headers, body, status, attempt_count, next_attempt_at, received_at';
+
 export async function findEventById(db: Db, id: string): Promise<StoredEvent | null> {
-  const { rows } = await db.query<EventRow>('SELECT * FROM events WHERE id = $1', [id]);
+  const { rows } = await db.query<EventRow>(
+    `SELECT ${EVENT_COLUMNS} FROM events WHERE id = $1`,
+    [id],
+  );
   const row = rows[0];
   if (row === undefined) return null;
 

@@ -1,19 +1,26 @@
 import type { Db } from '../db.js';
 
+/**
+ * Deliberately without the signing secret. Read paths feed the API and the
+ * dashboard, and a secret that is never on the object cannot be serialised out
+ * of one by a later `reply.send(endpoint)`.
+ */
 export interface Endpoint {
   id: string;
   name: string;
   destinationUrl: string;
-  signingSecret: string;
   isActive: boolean;
   createdAt: Date;
 }
+
+const COLUMNS = 'id, name, destination_url, is_active, created_at';
+
+export const MAX_ENDPOINT_PAGE = 100;
 
 interface EndpointRow {
   id: string;
   name: string;
   destination_url: string;
-  signing_secret: string;
   is_active: boolean;
   created_at: Date;
 }
@@ -23,7 +30,6 @@ function toEndpoint(row: EndpointRow): Endpoint {
     id: row.id,
     name: row.name,
     destinationUrl: row.destination_url,
-    signingSecret: row.signing_secret,
     isActive: row.is_active,
     createdAt: row.created_at,
   };
@@ -39,7 +45,7 @@ export async function createEndpoint(db: Db, input: CreateEndpointInput): Promis
   const { rows } = await db.query<EndpointRow>(
     `INSERT INTO endpoints (name, destination_url, signing_secret)
      VALUES ($1, $2, $3)
-     RETURNING *`,
+     RETURNING ${COLUMNS}`,
     [input.name, input.destinationUrl, input.signingSecret],
   );
 
@@ -49,14 +55,32 @@ export async function createEndpoint(db: Db, input: CreateEndpointInput): Promis
 }
 
 export async function findEndpointById(db: Db, id: string): Promise<Endpoint | null> {
-  const { rows } = await db.query<EndpointRow>('SELECT * FROM endpoints WHERE id = $1', [id]);
+  const { rows } = await db.query<EndpointRow>(
+    `SELECT ${COLUMNS} FROM endpoints WHERE id = $1`,
+    [id],
+  );
   const row = rows[0];
   return row === undefined ? null : toEndpoint(row);
 }
 
-export async function listEndpoints(db: Db): Promise<Endpoint[]> {
+export async function listEndpoints(db: Db, limit = MAX_ENDPOINT_PAGE): Promise<Endpoint[]> {
+  const clamped = Math.min(Math.max(Math.trunc(limit), 1), MAX_ENDPOINT_PAGE);
+
   const { rows } = await db.query<EndpointRow>(
-    'SELECT * FROM endpoints ORDER BY created_at DESC, id DESC',
+    `SELECT ${COLUMNS} FROM endpoints ORDER BY created_at DESC, id DESC LIMIT $1`,
+    [clamped],
   );
   return rows.map(toEndpoint);
+}
+
+/**
+ * The one path that needs the secret asks for it by name, so every other caller
+ * has to go out of its way to get hold of one.
+ */
+export async function findSigningSecret(db: Db, id: string): Promise<string | null> {
+  const { rows } = await db.query<{ signing_secret: string }>(
+    'SELECT signing_secret FROM endpoints WHERE id = $1',
+    [id],
+  );
+  return rows[0]?.signing_secret ?? null;
 }

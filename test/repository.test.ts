@@ -1,6 +1,12 @@
 import type pg from 'pg';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { createEndpoint, findEndpointById, listEndpoints } from '../src/repository/endpoints.js';
+import {
+  MAX_ENDPOINT_PAGE,
+  createEndpoint,
+  findEndpointById,
+  findSigningSecret,
+  listEndpoints,
+} from '../src/repository/endpoints.js';
 import { countEventsForEndpoint, findEventById, recordEvent } from '../src/repository/events.js';
 import { createTestPool, truncateAll } from './helpers/db.js';
 
@@ -45,6 +51,31 @@ describe('endpoints repository', () => {
 
     expect(names).toEqual(['second', 'first']);
     expect(first.id).not.toBe(second.id);
+  });
+
+  it('never carries the signing secret on a read', async () => {
+    const created = await createEndpoint(db, anEndpointInput());
+
+    for (const endpoint of [created, await findEndpointById(db, created.id), ...(await listEndpoints(db))]) {
+      expect(endpoint).not.toHaveProperty('signingSecret');
+      expect(JSON.stringify(endpoint)).not.toContain('shhh');
+    }
+  });
+
+  it('hands over the secret only when asked for it by name', async () => {
+    const created = await createEndpoint(db, anEndpointInput());
+
+    expect(await findSigningSecret(db, created.id)).toBe('shhh');
+    expect(await findSigningSecret(db, '00000000-0000-0000-0000-000000000000')).toBeNull();
+  });
+
+  it('clamps the page size in both directions', async () => {
+    for (const name of ['a', 'b', 'c']) await createEndpoint(db, anEndpointInput(name));
+
+    expect(await listEndpoints(db, 2)).toHaveLength(2);
+    expect(await listEndpoints(db, 0)).toHaveLength(1);
+    expect(await listEndpoints(db, 10_000)).toHaveLength(3);
+    expect(MAX_ENDPOINT_PAGE).toBe(100);
   });
 });
 
