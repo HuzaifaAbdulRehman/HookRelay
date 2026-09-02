@@ -91,6 +91,33 @@ export function createDeliveryAgent(options: AgentOptions = {}): Agent {
   });
 }
 
+/**
+ * Rejects a destination before a socket is considered.
+ *
+ * The address guard handles where a request goes. This handles what the URL is
+ * allowed to be: only http and https, and no embedded credentials. `new URL`
+ * keeps `username` and `password`, so a destination of
+ * `https://admin:hunter2@example.com/` would put a password into a delivery log
+ * the person who supplied it can read.
+ */
+export function assertDeliverableUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new BlockedAddressError(raw, 'not a url');
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new BlockedAddressError(raw, `unsupported scheme ${url.protocol}`);
+  }
+  if (url.username !== '' || url.password !== '') {
+    throw new BlockedAddressError(url.host, 'credentials in url');
+  }
+
+  return url;
+}
+
 function quantise(ms: number): number {
   return Math.round(ms / DURATION_BUCKET_MS) * DURATION_BUCKET_MS;
 }
@@ -114,7 +141,9 @@ export async function deliver(agent: Agent, req: DeliveryRequest): Promise<Deliv
   const elapsed = () => quantise(Number(process.hrtime.bigint() - started) / 1e6);
 
   try {
-    const res = await request(req.url, {
+    const url = assertDeliverableUrl(req.url);
+
+    const res = await request(url, {
       dispatcher: agent,
       method: 'POST',
       body: req.body,
