@@ -1,17 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import type pg from 'pg';
+import { afterAll, describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import { buildServer } from '../src/server.js';
+import { createTestPool } from './helpers/db.js';
 
-const testConfig = loadConfig({
+const config = loadConfig({
   NODE_ENV: 'test',
   LOG_LEVEL: 'silent',
   DATABASE_URL: 'postgres://hookrelay:hookrelay@localhost:5432/hookrelay_test',
   REDIS_URL: 'redis://localhost:6379',
 });
 
+const db: pg.Pool = createTestPool();
+
+afterAll(async () => {
+  await db.end();
+});
+
 describe('GET /health', () => {
   it('reports ok with an uptime', async () => {
-    const app = buildServer(testConfig);
+    const app = buildServer({ config, db });
 
     const res = await app.inject({ method: 'GET', url: '/health' });
 
@@ -23,7 +31,7 @@ describe('GET /health', () => {
   });
 
   it('404s an unknown route', async () => {
-    const app = buildServer(testConfig);
+    const app = buildServer({ config, db });
 
     const res = await app.inject({ method: 'GET', url: '/nope' });
 
