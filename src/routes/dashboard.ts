@@ -33,6 +33,32 @@ function authorised(request: FastifyRequest, apiKey: string): boolean {
   return offered.length === expected.length && timingSafeEqual(offered, expected);
 }
 
+/**
+ * Rejects a state-changing form post that did not come from our own pages.
+ *
+ * Browsers attach Basic credentials automatically, the same way they attach
+ * cookies, so a page on another site can submit a form here and the browser
+ * will authenticate it. The bearer-token JSON route is not exposed this way
+ * because nothing attaches an Authorization header on its own.
+ *
+ * Origin is compared against Host rather than a configured URL, so this stays
+ * correct wherever it runs. Behind a proxy that rewrites Host, the proxy's
+ * forwarded host is what would need comparing instead.
+ */
+function sameOrigin(request: FastifyRequest): boolean {
+  const host = request.headers.host;
+  if (typeof host !== 'string') return false;
+
+  const stated = request.headers.origin ?? request.headers.referer;
+  if (typeof stated !== 'string') return false;
+
+  try {
+    return new URL(stated).host === host;
+  } catch {
+    return false;
+  }
+}
+
 function ago(date: Date): string {
   const seconds = Math.round((Date.now() - date.getTime()) / 1000);
   if (seconds < 60) return `${seconds}s ago`;
@@ -167,6 +193,9 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardOptions> = async (app,
   app.post<{ Params: { id: string } }>(
     '/dashboard/events/:id/replay',
     async (request, reply) => {
+      if (!sameOrigin(request)) {
+        return reply.code(403).type('text/plain').send('cross-origin form post refused');
+      }
       if (!UUID.test(request.params.id)) return reply.code(404).type('text/plain').send('not found');
 
       const replayed = await replayEvent(opts.db, request.params.id);

@@ -199,11 +199,58 @@ describe('the dashboard', () => {
     const posted = await app.inject({
       method: 'POST',
       url: `/dashboard/events/${event.id}/replay`,
-      headers: basic,
+      headers: { ...basic, host: 'localhost:3000', origin: 'http://localhost:3000' },
     });
 
     expect(posted.statusCode).toBe(303);
     expect(replayed).toEqual([{ eventId: event.id, attempt: 2 }]);
+  });
+
+  it.each([
+    ['another site', 'https://evil.example'],
+    ['no origin at all', undefined],
+  ])('refuses a replay posted from %s', async (_label, origin) => {
+    // Browsers attach Basic credentials to a cross-site form post the same way
+    // they attach cookies, so authentication alone does not make this safe.
+    const endpoint = await createEndpoint(db, {
+      name: 'x',
+      destinationUrl: 'https://example.com/h',
+      signingSecret: 's',
+    });
+    const event = await recordEvent(db, {
+      endpointId: endpoint.id,
+      providerEventId: 'd1',
+      headers: {},
+      body: Buffer.from('{}'),
+    });
+    const claim = await claimForDelivery(db, event.id);
+    await recordAttempt(
+      db,
+      {
+        eventId: event.id,
+        attemptNumber: claim!.attemptNumber,
+        ladderPosition: claim!.ladderPosition,
+        status: 'failed',
+        responseStatus: 503,
+        responseSnippet: null,
+        error: null,
+        durationMs: 0,
+      },
+      { kind: 'dead' },
+    );
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/dashboard/events/${event.id}/replay`,
+      headers: {
+        ...basic,
+        host: 'localhost:3000',
+        ...(origin === undefined ? {} : { origin }),
+      },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(replayed).toHaveLength(0);
   });
 });
 
