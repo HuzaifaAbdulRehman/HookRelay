@@ -28,6 +28,22 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...required, LOG_LEVEL: 'chatty' })).toThrow(/LOG_LEVEL/);
   });
 
+  it('refuses a pool too small for the worker', () => {
+    // A connection timeout is recorded as a failed delivery, so an undersized
+    // pool dead-letters events that were never actually attempted.
+    expect(() =>
+      loadConfig({ ...required, WORKER_CONCURRENCY: '20', DB_POOL_MAX: '10' }),
+    ).toThrow(/DB_POOL_MAX/);
+
+    expect(() =>
+      loadConfig({ ...required, WORKER_CONCURRENCY: '10', DB_POOL_MAX: '10' }),
+    ).toThrow(/must exceed/);
+
+    expect(loadConfig(required).DB_POOL_MAX).toBeGreaterThan(
+      loadConfig(required).WORKER_CONCURRENCY,
+    );
+  });
+
   it('keeps the outbound address guard on unless it is turned off by name', () => {
     expect(loadConfig(required).ALLOW_PRIVATE_DESTINATIONS).toBe(false);
     expect(

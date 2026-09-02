@@ -18,7 +18,10 @@ const app = buildServer({
   onAccepted: async (eventId) => enqueueDelivery(queue, { eventId, attempt: 1 }),
 });
 
-const worker = createDeliveryWorker({ db, agent, queue }, { redisUrl: config.REDIS_URL });
+const worker = createDeliveryWorker(
+  { db, agent, queue },
+  { redisUrl: config.REDIS_URL, concurrency: config.WORKER_CONCURRENCY },
+);
 
 if (config.ALLOW_PRIVATE_DESTINATIONS) {
   app.log.warn(

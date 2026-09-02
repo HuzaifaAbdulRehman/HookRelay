@@ -26,6 +26,15 @@ const EnvSchema = z.object({
    * destination URL can be supplied by someone else, because it re-opens every
    * SSRF path the guard exists to close.
    */
+  /**
+   * Each in-flight delivery holds at most one connection at a time, so the pool
+   * has to cover every worker slot plus whatever the HTTP API is doing. If it
+   * does not, jobs fail waiting for a connection, and a connection timeout is
+   * indistinguishable from a destination failure: it burns the retry ladder and
+   * dead-letters events that were never actually attempted.
+   */
+  WORKER_CONCURRENCY: z.coerce.number().int().positive().default(10),
+  DB_POOL_MAX: z.coerce.number().int().positive().default(20),
   ALLOW_PRIVATE_DESTINATIONS: z
     .enum(['true', 'false'])
     .default('false')
@@ -46,6 +55,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .map((issue) => `  ${issue.path.join('.') || '(root)'}: ${issue.message}`)
       .join('\n');
     throw new Error(`Invalid environment:\n${issues}`);
+  }
+
+  if (parsed.data.DB_POOL_MAX <= parsed.data.WORKER_CONCURRENCY) {
+    throw new Error(
+      `Invalid environment:\n  DB_POOL_MAX (${parsed.data.DB_POOL_MAX}) must exceed ` +
+        `WORKER_CONCURRENCY (${parsed.data.WORKER_CONCURRENCY}), or deliveries will fail ` +
+        'waiting for a connection and be recorded as failed deliveries',
+    );
   }
 
   return parsed.data;

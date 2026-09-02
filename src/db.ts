@@ -6,7 +6,7 @@ export type Db = pg.Pool;
 export function createPool(config: Config): Db {
   return new pg.Pool({
     connectionString: config.DATABASE_URL,
-    max: 10,
+    max: config.DB_POOL_MAX,
     // A query that cannot get a connection should fail fast rather than pile up
     // behind whatever is holding the pool.
     connectionTimeoutMillis: 5_000,
