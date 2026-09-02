@@ -9,6 +9,17 @@ const EnvSchema = z.object({
     .default('info'),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
+  /**
+   * GitHub caps payloads at 25 MB, but the raw body is held in memory to be
+   * hashed, so accepting that much means anyone holding an ingest URL can make
+   * us allocate 25 MB per request. 5 MB covers ordinary deliveries and rejects
+   * the rare enormous push event, which is the trade worth making.
+   */
+  INGEST_BODY_LIMIT_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 1024 * 1024),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
