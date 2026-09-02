@@ -69,6 +69,23 @@ identity *shared*. Two events that both lack an id are two events. Using
 `NULLS NOT DISTINCT` would allow one keyless event per endpoint, ever, and silently
 discard the rest.
 
+## Known limitations
+
+**The idempotency key is not covered by the signature.** GitHub signs the request body and
+nothing else, while the delivery id that identifies a repeat arrives in a header. Anyone who
+captures a valid delivery can therefore replay the same bytes under a different
+`X-GitHub-Delivery` and get a second event stored, because the signature still verifies. This
+is a property of any signature scheme that covers only the body, and it cannot be closed from
+this side. Stripe avoids it by signing `timestamp.body` and rejecting old timestamps.
+
+**Signatures are mandatory.** Every endpoint carries a secret, so a provider that does not sign
+its webhooks cannot be relayed yet.
+
+**Destination URLs are stored unvalidated.** Nothing delivers anywhere yet. The address is
+checked at connect time rather than when it is saved, because a hostname that resolves to a
+public address when you check it can resolve to `127.0.0.1` when you connect. Validating on the
+way in would look like protection and provide none.
+
 ## Not built yet
 
 Ingest, the delivery worker, retries and backoff, the dead-letter queue, replay, and the
