@@ -99,6 +99,69 @@ export async function findEventById(db: Db, id: string): Promise<StoredEvent | n
   };
 }
 
+export interface EventSummary {
+  id: string;
+  endpointId: string;
+  providerEventId: string | null;
+  status: EventStatus;
+  attemptCount: number;
+  receivedAt: Date;
+  bodyBytes: number;
+}
+
+export interface ListEventsQuery {
+  endpointId?: string | undefined;
+  status?: EventStatus | undefined;
+  limit?: number | undefined;
+}
+
+export const MAX_EVENT_PAGE = 100;
+
+/**
+ * Lists events without their payloads. The body is toasted out of line and can
+ * be megabytes, so a list view that selected it would read every one of them to
+ * render a table that shows none.
+ */
+export async function listEvents(db: Db, query: ListEventsQuery = {}): Promise<EventSummary[]> {
+  const limit = Math.min(Math.max(Math.trunc(query.limit ?? MAX_EVENT_PAGE), 1), MAX_EVENT_PAGE);
+
+  const { rows } = await db.query<{
+    id: string;
+    endpoint_id: string;
+    provider_event_id: string | null;
+    status: EventStatus;
+    attempt_count: number;
+    received_at: Date;
+    body_bytes: number;
+  }>(
+    `SELECT id, endpoint_id, provider_event_id, status, attempt_count, received_at,
+            octet_length(body) AS body_bytes
+       FROM events
+      WHERE ($1::uuid IS NULL OR endpoint_id = $1)
+        AND ($2::text IS NULL OR status = $2)
+      ORDER BY received_at DESC, id DESC
+      LIMIT $3`,
+    [query.endpointId ?? null, query.status ?? null, limit],
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    endpointId: row.endpoint_id,
+    providerEventId: row.provider_event_id,
+    status: row.status,
+    attemptCount: row.attempt_count,
+    receivedAt: row.received_at,
+    bodyBytes: Number(row.body_bytes),
+  }));
+}
+
+export async function countEventsByStatus(db: Db): Promise<Record<string, number>> {
+  const { rows } = await db.query<{ status: string; count: string }>(
+    'SELECT status, count(*)::text AS count FROM events GROUP BY status',
+  );
+  return Object.fromEntries(rows.map((row) => [row.status, Number(row.count)]));
+}
+
 export async function countEventsForEndpoint(db: Db, endpointId: string): Promise<number> {
   const { rows } = await db.query<{ count: string }>(
     'SELECT count(*)::text AS count FROM events WHERE endpoint_id = $1',

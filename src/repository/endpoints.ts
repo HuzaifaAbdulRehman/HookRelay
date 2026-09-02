@@ -74,6 +74,19 @@ export async function listEndpoints(db: Db, limit = MAX_ENDPOINT_PAGE): Promise<
 }
 
 /**
+ * Stops an endpoint accepting deliveries without deleting it. A delete would
+ * cascade away every event and its attempt history, which is the record of what
+ * actually happened.
+ */
+export async function deactivateEndpoint(db: Db, id: string): Promise<boolean> {
+  const { rows } = await db.query(
+    'UPDATE endpoints SET is_active = false WHERE id = $1 AND is_active RETURNING id',
+    [id],
+  );
+  return rows.length > 0;
+}
+
+/**
  * The one path that needs the secret asks for it by name, so every other caller
  * has to go out of its way to get hold of one.
  */
