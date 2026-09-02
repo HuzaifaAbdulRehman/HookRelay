@@ -37,8 +37,11 @@ export async function processDelivery(
   const timeoutMs = deps.timeoutMs ?? 10_000;
 
   // Anything already delivered or dead-lettered is left alone. A duplicate job
-  // is expected under at-least-once, not an error.
-  if (!(await claimForDelivery(deps.db, job.eventId))) return 'skipped';
+  // is expected under at-least-once, not an error. The claim also decides which
+  // attempt this is, so the number comes from the row rather than the payload
+  // and a stale job cannot overwrite a newer attempt.
+  const claim = await claimForDelivery(deps.db, job.eventId);
+  if (claim === null) return 'skipped';
 
   const event = await findEventById(deps.db, job.eventId);
   const endpoint = event === null ? null : await findEndpointById(deps.db, event.endpointId);
@@ -49,7 +52,8 @@ export async function processDelivery(
       deps.db,
       {
         eventId: job.eventId,
-        attemptNumber: job.attempt,
+        attemptNumber: claim.attemptNumber,
+        ladderPosition: claim.ladderPosition,
         status: 'failed',
         responseStatus: null,
         responseSnippet: null,
@@ -69,7 +73,7 @@ export async function processDelivery(
       'content-type': event.headers['content-type'] ?? 'application/json',
       'x-hub-signature-256': sign(event.body, secret),
       'x-hookrelay-event-id': event.id,
-      'x-hookrelay-attempt': String(job.attempt),
+      'x-hookrelay-attempt': String(claim.attemptNumber),
       // Stable across every retry and every stall recovery of this event, which
       // is what lets a destination deduplicate. The attempt number is not,
       // because a recovered attempt reuses its number.
@@ -85,10 +89,14 @@ export async function processDelivery(
   let disposition: Disposition;
   if (succeeded) {
     disposition = { kind: 'delivered' };
-  } else if (permanent || isExhausted(job.attempt, policy)) {
+    // Exhaustion and backoff read the ladder position, not the attempt number.
+    // After a replay those diverge: the ladder restarts at one while attempt
+    // numbers keep climbing, so using the attempt number would dead-letter a
+    // replayed event on its first try.
+  } else if (permanent || isExhausted(claim.ladderPosition, policy)) {
     disposition = { kind: 'dead' };
   } else {
-    const delay = backoffMs(job.attempt, policy, deps.random);
+    const delay = backoffMs(claim.ladderPosition, policy, deps.random);
     disposition = { kind: 'retry', nextAttemptAt: new Date(now().getTime() + delay) };
   }
 
@@ -96,7 +104,8 @@ export async function processDelivery(
     deps.db,
     {
       eventId: job.eventId,
-      attemptNumber: job.attempt,
+      attemptNumber: claim.attemptNumber,
+      ladderPosition: claim.ladderPosition,
       status: succeeded ? 'delivered' : 'failed',
       responseStatus: outcome.status,
       responseSnippet: outcome.responseSnippet,
@@ -111,7 +120,7 @@ export async function processDelivery(
   if (disposition.kind === 'retry') {
     await enqueueDelivery(
       deps.queue,
-      { eventId: job.eventId, attempt: job.attempt + 1 },
+      { eventId: job.eventId, attempt: claim.attemptNumber + 1 },
       Math.max(0, disposition.nextAttemptAt.getTime() - now().getTime()),
     );
   }

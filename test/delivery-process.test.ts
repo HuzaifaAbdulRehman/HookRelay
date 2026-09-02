@@ -170,12 +170,29 @@ describe('a failing delivery', () => {
     const eventId = await anEvent();
     handler = (_req, res) => res.writeHead(503).end();
     const { added, queue } = fakeQueue();
+    // The ladder lives in the row, so it is set there rather than claimed in
+    // the job payload.
+    await db.query(`UPDATE events SET failed_streak = 7, status = 'failed' WHERE id = $1`, [eventId]);
 
     const result = await processDelivery(deps({ queue }), { eventId, attempt: 8 });
 
     expect(result).toBe('dead');
     expect((await findEventById(db, eventId))?.status).toBe('dlq');
     expect(added).toHaveLength(0);
+  });
+
+  it('will not let a job payload force a dead-letter', async () => {
+    // The attempt number and the ladder position both come from the row. A
+    // stale or forged payload claiming attempt 99 must not retire an event that
+    // has never failed.
+    const eventId = await anEvent();
+    handler = (_req, res) => res.writeHead(503).end();
+
+    const result = await processDelivery(deps(), { eventId, attempt: 99 });
+
+    expect(result).toBe('retry');
+    const [attempt] = await listAttempts(db, eventId);
+    expect(attempt?.attemptNumber).toBe(1);
   });
 
   it('dead-letters a permanent rejection without burning the ladder', async () => {
@@ -223,17 +240,17 @@ describe('duplicate work', () => {
     expect(await listAttempts(db, eventId)).toHaveLength(1);
   });
 
-  it('does not crash when the same attempt is recorded twice', async () => {
-    // At-least-once means a lost lock can replay an attempt. The unique
-    // constraint has to absorb that rather than fail the job forever.
+  it('counts a genuine second run as the next attempt, not a duplicate', async () => {
     const eventId = await anEvent();
     handler = (_req, res) => res.writeHead(503).end();
 
     await processDelivery(deps(), { eventId, attempt: 1 });
     await db.query(`UPDATE events SET status = 'failed' WHERE id = $1`, [eventId]);
-    await expect(processDelivery(deps(), { eventId, attempt: 1 })).resolves.toBe('retry');
+    await processDelivery(deps(), { eventId, attempt: 2 });
 
-    expect(await listAttempts(db, eventId)).toHaveLength(1);
+    const attempts = await listAttempts(db, eventId);
+    expect(attempts.map((a) => a.attemptNumber)).toEqual([1, 2]);
+    expect((await findEventById(db, eventId))?.attemptCount).toBe(2);
   });
 
   it('dead-letters an event whose endpoint was deleted', async () => {
