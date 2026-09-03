@@ -1,0 +1,13 @@
+.git
+node_modules
+dist
+coverage
+bench
+test
+docs
+screenshots
+.github
+.env
+*.log
+CLAUDE.md
+README.md

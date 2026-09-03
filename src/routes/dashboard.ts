@@ -59,6 +59,17 @@ function sameOrigin(request: FastifyRequest): boolean {
   }
 }
 
+/**
+ * Durations are stored in 100 ms buckets on purpose, so that refused, dropped
+ * and unreachable destinations are not separable by timing. A fast delivery
+ * therefore lands in the zero bucket, and printing "0 ms" would read as a bug
+ * rather than as the bound it actually is.
+ */
+function duration(ms: number | null): string {
+  if (ms === null) return '-';
+  return ms === 0 ? '< 100 ms' : `${ms} ms`;
+}
+
 function ago(date: Date): string {
   const seconds = Math.round((Date.now() - date.getTime()) / 1000);
   if (seconds < 60) return `${seconds}s ago`;
@@ -155,7 +166,7 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardOptions> = async (app,
           <td>${attempt.attemptNumber}</td>
           <td>${raw(badge(attempt.status))}</td>
           <td>${attempt.responseStatus ?? '-'}</td>
-          <td>${attempt.durationMs ?? '-'} ms</td>
+          <td>${duration(attempt.durationMs)}</td>
           <td class="mono">${attempt.error ?? ''}</td>
         </tr>`,
       )

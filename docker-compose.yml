@@ -29,5 +29,25 @@ services:
       retries: 10
       start_period: 5s
 
+  # Not started by a bare `docker compose up`, so the usual development loop
+  # brings up only the dependencies and the app runs from source with reload.
+  # `--profile app` runs the built image instead.
+  app:
+    profiles: ["app"]
+    build: .
+    container_name: hookrelay-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://hookrelay:hookrelay@postgres:5432/hookrelay
+      REDIS_URL: redis://redis:6379
+      API_KEY: ${API_KEY:?set API_KEY in .env}
+      ALLOW_PRIVATE_DESTINATIONS: ${ALLOW_PRIVATE_DESTINATIONS:-false}
+    ports:
+      - "127.0.0.1:3000:3000"
+
 volumes:
   pgdata:
