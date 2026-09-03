@@ -4,6 +4,7 @@ import type { Queue } from 'bullmq';
 import type pg from 'pg';
 import { Agent } from 'undici';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { Circuit } from '../src/delivery/circuit.js';
 import { processDelivery } from '../src/delivery/process.js';
 import type { DeliveryJobData } from '../src/delivery/queue.js';
 import { listAttempts } from '../src/repository/attempts.js';
@@ -225,6 +226,46 @@ describe('a failing delivery', () => {
     expect(result).toBe('retry');
     const [attempt] = await listAttempts(db, eventId);
     expect(attempt).toMatchObject({ status: 'failed', responseStatus: null, error: 'delivery failed' });
+  });
+});
+
+describe('an open circuit', () => {
+  it('reschedules without dialling, and without spending an attempt', async () => {
+    const eventId = await anEvent();
+    handler = (_req, res) => res.writeHead(200).end('ok');
+    const circuit = new Circuit({ threshold: 1 });
+    const event = await findEventById(db, eventId);
+    circuit.recordFailure(event!.endpointId);
+    const { added, queue } = fakeQueue();
+
+    const result = await processDelivery(deps({ queue, circuit }), { eventId, attempt: 1 });
+
+    expect(result).toBe('deferred');
+    // Nothing was sent, so nothing is an attempt and the ladder has not moved.
+    expect(received).toHaveLength(0);
+    expect(await listAttempts(db, eventId)).toHaveLength(0);
+    expect((await findEventById(db, eventId))?.attemptCount).toBe(0);
+    // But it is queued again rather than dropped.
+    expect(added).toHaveLength(1);
+  });
+
+  it('opens after enough failures and closes on a success', async () => {
+    const eventId = await anEvent();
+    const event = await findEventById(db, eventId);
+    const circuit = new Circuit({ threshold: 2 });
+
+    handler = (_req, res) => res.writeHead(503).end();
+    await processDelivery(deps({ circuit }), { eventId, attempt: 1 });
+    await db.query(`UPDATE events SET status = 'failed' WHERE id = $1`, [eventId]);
+    await processDelivery(deps({ circuit }), { eventId, attempt: 2 });
+    expect(circuit.isOpen(event!.endpointId)).toBe(true);
+
+    circuit.recordSuccess(event!.endpointId);
+    handler = (_req, res) => res.writeHead(200).end('ok');
+    await db.query(`UPDATE events SET status = 'failed' WHERE id = $1`, [eventId]);
+    await processDelivery(deps({ circuit }), { eventId, attempt: 3 });
+
+    expect(circuit.isOpen(event!.endpointId)).toBe(false);
   });
 });
 

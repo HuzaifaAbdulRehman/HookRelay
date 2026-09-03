@@ -11,7 +11,10 @@ const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
  * broken connection. BullMQ v6 made ioredis an optional peer dependency, and
  * the whole suite stayed green while the app could not start at all.
  */
-const queue = createDeliveryQueue(REDIS_URL);
+// A queue name of its own, because a running HookRelay would otherwise consume
+// these jobs before the assertions could see them. Sharing a queue with whatever
+// happens to be running is not isolation.
+const queue = createDeliveryQueue(REDIS_URL, `delivery-test-${process.pid}`);
 
 beforeAll(async () => {
   await queue.waitUntilReady();
