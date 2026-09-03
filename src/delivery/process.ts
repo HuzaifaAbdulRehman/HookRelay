@@ -3,7 +3,13 @@ import type { Agent } from 'undici';
 import type { Db } from '../db.js';
 import { findEndpointById, findSigningSecret } from '../repository/endpoints.js';
 import { findEventById } from '../repository/events.js';
-import { type Disposition, claimForDelivery, recordAttempt } from '../repository/attempts.js';
+import {
+  type Disposition,
+  claimForDelivery,
+  deferDelivery,
+  recordAttempt,
+} from '../repository/attempts.js';
+import type { Circuit } from './circuit.js';
 import { sign } from '../signature.js';
 import { deliver } from './client.js';
 import { DEFAULT_POLICY, type RetryPolicy, backoffMs, isExhausted, isRetryableStatus } from './policy.js';
@@ -13,13 +19,14 @@ export interface ProcessDeps {
   db: Db;
   agent: Agent;
   queue: Queue<DeliveryJobData>;
+  circuit?: Circuit | undefined;
   policy?: RetryPolicy;
   timeoutMs?: number;
   now?: () => Date;
   random?: () => number;
 }
 
-export type ProcessResult = Disposition['kind'] | 'skipped';
+export type ProcessResult = Disposition['kind'] | 'skipped' | 'deferred';
 
 /**
  * Runs one delivery attempt end to end.
@@ -65,6 +72,17 @@ export async function processDelivery(
     return 'dead';
   }
 
+  // A destination that has failed repeatedly is not dialled again yet. The slot
+  // is freed in microseconds instead of being held for the whole timeout, which
+  // is what stops one dead endpoint starving every other one.
+  if (deps.circuit?.isOpen(event.endpointId) === true) {
+    const delay = backoffMs(claim.ladderPosition, policy, deps.random);
+    const nextAttemptAt = new Date(now().getTime() + delay);
+    await deferDelivery(deps.db, job.eventId, nextAttemptAt);
+    await enqueueDelivery(deps.queue, { eventId: job.eventId, attempt: claim.attemptNumber }, delay);
+    return 'deferred';
+  }
+
   const outcome = await deliver(deps.agent, {
     url: endpoint.destinationUrl,
     body: event.body,
@@ -99,6 +117,9 @@ export async function processDelivery(
     const delay = backoffMs(claim.ladderPosition, policy, deps.random);
     disposition = { kind: 'retry', nextAttemptAt: new Date(now().getTime() + delay) };
   }
+
+  if (succeeded) deps.circuit?.recordSuccess(event.endpointId);
+  else deps.circuit?.recordFailure(event.endpointId);
 
   await recordAttempt(
     deps.db,

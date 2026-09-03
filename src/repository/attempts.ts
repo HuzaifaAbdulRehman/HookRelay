@@ -134,6 +134,21 @@ export async function claimForDelivery(
  * succeed, and the attempt number comes back from the same statement rather
  * than a second read a worker could interleave with.
  */
+/**
+ * Hands a claimed event back without recording an attempt.
+ *
+ * Used when the circuit is open: nothing was dialled, so nothing is a delivery
+ * attempt and the ladder must not advance. Only the schedule moves.
+ */
+export async function deferDelivery(db: Db, eventId: string, nextAttemptAt: Date): Promise<void> {
+  await db.query(
+    `UPDATE events
+        SET status = 'failed', next_attempt_at = $2, claimed_at = NULL
+      WHERE id = $1 AND status = 'delivering'`,
+    [eventId, nextAttemptAt],
+  );
+}
+
 export async function replayEvent(
   db: Db,
   eventId: string,

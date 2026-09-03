@@ -20,8 +20,11 @@ export function connectionFor(redisUrl: string) {
  * long ladder would park every payload in Redis for the whole window. Postgres
  * owns the policy and the history; Redis only holds what is imminent.
  */
-export function createDeliveryQueue(redisUrl: string): Queue<DeliveryJobData> {
-  return new Queue<DeliveryJobData>(DELIVERY_QUEUE, {
+export function createDeliveryQueue(
+  redisUrl: string,
+  name: string = DELIVERY_QUEUE,
+): Queue<DeliveryJobData> {
+  return new Queue<DeliveryJobData>(name, {
     connection: connectionFor(redisUrl),
     defaultJobOptions: {
       attempts: 1,

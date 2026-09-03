@@ -1,6 +1,7 @@
 import { loadConfig } from './config.js';
 import { createPool } from './db.js';
 import { createDeliveryAgent } from './delivery/client.js';
+import { Circuit } from './delivery/circuit.js';
 import { createDeliveryQueue, enqueueDelivery } from './delivery/queue.js';
 import { startSweeper } from './delivery/sweeper.js';
 import { createDeliveryWorker } from './delivery/worker.js';
@@ -24,8 +25,10 @@ const sweeper = startSweeper({ db, queue }, 15_000, (err) =>
   app.log.error({ err }, 'sweep failed'),
 );
 
+const circuit = new Circuit();
+
 const worker = createDeliveryWorker(
-  { db, agent, queue },
+  { db, agent, queue, circuit },
   { redisUrl: config.REDIS_URL, concurrency: config.WORKER_CONCURRENCY },
 );
 

@@ -14,7 +14,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "migrate:up": "node --env-file=.env node_modules/node-pg-migrate/bin/node-pg-migrate.js up",
-    "migrate:down": "node --env-file=.env node_modules/node-pg-migrate/bin/node-pg-migrate.js down"
+    "migrate:down": "node --env-file=.env node_modules/node-pg-migrate/bin/node-pg-migrate.js down",
+    "bench:ingest": "node --env-file=.env --import tsx bench/ingest-latency.ts",
+    "bench:hol": "node --env-file=.env --import tsx bench/head-of-line.ts"
   },
   "dependencies": {
     "bullmq": "^6.3.4",
