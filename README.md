@@ -1,95 +1,87 @@
 # HookRelay
 
-Reliable webhook delivery. It receives events, stores them, and keeps retrying until they
-land, logging every attempt and dead-lettering the ones that never succeed.
+Reliable webhook delivery. It accepts events, stores them, and keeps retrying until they
+land, with a log of every attempt and a dead-letter queue for the ones that never do.
 
-GitHub and Stripe POST an event to your server once. If your server is down at that
-moment, the event is gone and nobody tells you. HookRelay sits in the middle. It accepts
-the event, acknowledges it immediately, and takes responsibility for delivering it.
+![The delivery log for a failing event, showing the retry ladder and a replay button](docs/dashboard-event.png)
 
-## Status
+## Why
 
-Phase 1. The schema exists and is tested. Nothing is ingested or delivered yet.
+GitHub POSTs an event to your server once and, in their words, *"does not automatically
+redeliver failed webhook deliveries"*. Your endpoint has ten seconds to answer. Miss it
+because you were deploying, and the event is gone with nothing to tell you.
 
-Working today: a Fastify server with a `/health` route, Postgres and Redis under Compose,
-environment validation that fails at boot rather than mid-request, reversible migrations,
-and repositories for endpoints and events with 26 tests behind them.
+HookRelay sits in the middle. It accepts the event, acknowledges it immediately, and takes
+responsibility for getting it delivered.
 
 ## Running it
 
 Needs Node 24+ and Docker.
 
 ```sh
-cp .env.example .env
+cp .env.example .env          # then set API_KEY to something long
 npm install
 docker compose up -d --wait
 npm run migrate:up
 npm run dev
 ```
 
-Then:
+Create an endpoint and get its ingest URL:
 
 ```sh
-curl http://localhost:3000/health
-# {"status":"ok","uptime":3}
+curl -sX POST localhost:3000/endpoints \
+  -H "authorization: Bearer $API_KEY" -H 'content-type: application/json' \
+  -d '{"name":"github","destinationUrl":"https://your-app.example/hooks"}'
 ```
 
-Tests need the database up. They create `hookrelay_test` themselves and migrate it through
-the same CLI the app uses, so a schema that works only under test cannot exist.
+That returns a signing secret, once. Paste the ingest URL into a provider's webhook
+settings and the secret into its secret field. The dashboard is at `/dashboard`, using the
+same API key as the password.
+
+To run everything in containers instead: `docker compose --profile app up -d --wait`.
+
+## What is interesting here
+
+**Containing SSRF.** Making an HTTP request to a URL somebody else chose is the definition
+of server-side request forgery, so the whole design question is what stops it reaching
+cloud metadata or an internal service. The address is validated at the moment of
+connection rather than when it is saved, because a hostname that resolves publicly when
+you check it can resolve to `127.0.0.1` when you connect. There is a test for each bypass
+class, including the three ways IPv6 can smuggle an IPv4 address. See
+[docs/threat-model.md](docs/threat-model.md).
+
+**Measuring head-of-line blocking.** One destination that accepts connections and never
+answers held every worker slot, and unrelated endpoints waited about a hundred times
+longer. Adding a circuit breaker did more than speed that up: the delay stopped growing
+with the backlog at all, staying flat from 40 queued deliveries to 240. Numbers, method
+and the things that were predicted rather than measured are in
+[docs/findings.md](docs/findings.md).
+
+## Design notes
+
+Postgres owns the retry policy and Redis only holds what is imminent, because BullMQ
+freezes retry options into a job at enqueue time and offers no way to change them
+afterwards.
+
+Payloads are stored as raw bytes rather than parsed JSON. A provider signs the exact bytes
+it sent, so re-serialising would mean no stored event could ever be verified or replayed.
+
+Attempt numbers climb forever while the retry ladder resets, so replaying a dead-lettered
+event cannot collide with the attempts already in its log.
+
+## Limitations
+
+Signatures are mandatory, so a provider that does not sign cannot be relayed. The
+idempotency key travels in a header while the signature covers only the body, which leaves
+a replay window no receiver can close. One event goes to one destination; fan-out is not
+built.
 
 ## Commands
 
-| Command | Does |
+| | |
 | --- | --- |
-| `npm run dev` | run the server, reloading on change |
-| `npm test` | run the test suite |
-| `npm run typecheck` | types only, no build |
-| `npm run build` | compile to `dist/` |
-| `npm run migrate:up` | apply migrations |
-| `npm run migrate:down` | roll the last one back |
-
-## Schema notes
-
-Two decisions worth knowing before reading the migration.
-
-**The payload is `bytea`, not `jsonb`.** GitHub signs the exact bytes it sent. Parsing to
-JSON and re-serialising reorders keys and drops whitespace, so the signature would never
-verify again and a replay would send something the provider never signed.
-
-**The idempotency index is partial**, covering only rows that carry a provider delivery id:
-
-```sql
-CREATE UNIQUE INDEX events_endpoint_provider_key
-  ON events (endpoint_id, provider_event_id)
-  WHERE provider_event_id IS NOT NULL;
-```
-
-A null there means the provider sent no delivery id, which is identity *unknown*, not
-identity *shared*. Two events that both lack an id are two events. Using
-`NULLS NOT DISTINCT` would allow one keyless event per endpoint, ever, and silently
-discard the rest.
-
-## Known limitations
-
-**The idempotency key is not covered by the signature.** GitHub signs the request body and
-nothing else, while the delivery id that identifies a repeat arrives in a header. Anyone who
-captures a valid delivery can therefore replay the same bytes under a different
-`X-GitHub-Delivery` and get a second event stored, because the signature still verifies. This
-is a property of any signature scheme that covers only the body, and it cannot be closed from
-this side. Stripe avoids it by signing `timestamp.body` and rejecting old timestamps.
-
-**Signatures are mandatory.** Every endpoint carries a secret, so a provider that does not sign
-its webhooks cannot be relayed yet.
-
-**Destination URLs are stored unvalidated.** Nothing delivers anywhere yet. The address is
-checked at connect time rather than when it is saved, because a hostname that resolves to a
-public address when you check it can resolve to `127.0.0.1` when you connect. Validating on the
-way in would look like protection and provide none.
-
-## Not built yet
-
-Ingest, the delivery worker, retries and backoff, the dead-letter queue, replay, and the
-dashboard. Which is to say everything that makes this HookRelay rather than a schema.
-
-`/health` reports that the process is alive. It does not check Postgres or Redis, so a
-200 from it does not mean the system is ready to serve traffic.
+| `npm run dev` | run with reload |
+| `npm test` | 210 tests, needs the database up |
+| `npm run typecheck` | types only |
+| `npm run migrate:up` / `:down` | apply or roll back migrations |
+| `npm run bench:hol` | reproduce the head-of-line measurement |
