@@ -14,6 +14,10 @@ because you were deploying, and the event is gone with nothing to tell you.
 HookRelay sits in the middle. It accepts the event, acknowledges it immediately, and takes
 responsibility for getting it delivered.
 
+Tested against real GitHub, not only a local harness: a webhook pointed at a tunnel, GitHub
+signing a 7.4 KB payload with the endpoint's secret, HookRelay verifying that signature and
+answering 202.
+
 ## Running it
 
 Needs Node 24+ and Docker.
