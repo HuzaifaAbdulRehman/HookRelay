@@ -22,7 +22,14 @@ const agent = new Agent();
 let server: Server;
 let port: number;
 let handler: (req: IncomingMessage, res: ServerResponse) => void;
-let received: { body: string; signature: string; idempotencyKey: string; attempt: string }[] = [];
+let received: {
+  body: string;
+  signature: string;
+  idempotencyKey: string;
+  attempt: string;
+  githubEvent: string;
+  arbitraryHeader: string;
+}[] = [];
 
 /** Records what was enqueued instead of talking to Redis; scheduling is what matters here. */
 function fakeQueue() {
@@ -47,6 +54,8 @@ beforeAll(async () => {
         signature: String(req.headers['x-hub-signature-256'] ?? ''),
         idempotencyKey: String(req.headers['idempotency-key'] ?? ''),
         attempt: String(req.headers['x-hookrelay-attempt'] ?? ''),
+        githubEvent: String(req.headers['x-github-event'] ?? ''),
+        arbitraryHeader: String(req.headers['x-arbitrary-header'] ?? ''),
       });
       handler(req, res);
     });
@@ -67,7 +76,7 @@ beforeEach(async () => {
   handler = (_req, res) => res.writeHead(200).end('ok');
 });
 
-async function anEvent(): Promise<string> {
+async function anEvent(headers: Record<string, string> = {}): Promise<string> {
   const endpoint = await createEndpoint(db, {
     name: 'github',
     destinationUrl: `http://127.0.0.1:${port}/hook`,
@@ -76,7 +85,7 @@ async function anEvent(): Promise<string> {
   const event = await recordEvent(db, {
     endpointId: endpoint.id,
     providerEventId: 'delivery-1',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: BODY,
   });
   return event.id;
@@ -121,6 +130,26 @@ describe('a successful delivery', () => {
 
     expect(received.map((r) => r.idempotencyKey)).toEqual([eventId, eventId]);
     expect(received.map((r) => r.attempt)).toEqual(['1', '2']);
+  });
+
+  it('forwards the GitHub event type without forwarding arbitrary headers', async () => {
+    const eventId = await anEvent({
+      'x-github-event': 'push',
+      'x-arbitrary-header': 'must-not-leave-the-relay',
+    });
+
+    await processDelivery(deps(), { eventId, attempt: 1 });
+
+    expect(received[0]?.githubEvent).toBe('push');
+    expect(received[0]?.arbitraryHeader).toBe('');
+  });
+
+  it('does not forward a malformed GitHub event type', async () => {
+    const eventId = await anEvent({ 'x-github-event': 'push\r\nx-injected: true' });
+
+    await processDelivery(deps(), { eventId, attempt: 1 });
+
+    expect(received[0]?.githubEvent).toBe('');
   });
 });
 

@@ -28,6 +28,13 @@ export interface ProcessDeps {
 
 export type ProcessResult = Disposition['kind'] | 'skipped' | 'deferred';
 
+const GITHUB_EVENT_TYPE = /^[a-z][a-z0-9_]{0,63}$/;
+
+function githubEventType(headers: Record<string, string>): string | undefined {
+  const value: unknown = headers['x-github-event'];
+  return typeof value === 'string' && GITHUB_EVENT_TYPE.test(value) ? value : undefined;
+}
+
 /**
  * Runs one delivery attempt end to end.
  *
@@ -83,6 +90,7 @@ export async function processDelivery(
     return 'deferred';
   }
 
+  const eventType = githubEventType(event.headers);
   const outcome = await deliver(deps.agent, {
     url: endpoint.destinationUrl,
     body: event.body,
@@ -92,6 +100,7 @@ export async function processDelivery(
       'x-hub-signature-256': sign(event.body, secret),
       'x-hookrelay-event-id': event.id,
       'x-hookrelay-attempt': String(claim.attemptNumber),
+      ...(eventType === undefined ? {} : { 'x-github-event': eventType }),
       // Stable across every retry and every stall recovery of this event, which
       // is what lets a destination deduplicate. The attempt number is not,
       // because a recovered attempt reuses its number.
