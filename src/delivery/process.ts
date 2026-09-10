@@ -86,7 +86,11 @@ export async function processDelivery(
     const delay = backoffMs(claim.ladderPosition, policy, deps.random);
     const nextAttemptAt = new Date(now().getTime() + delay);
     await deferDelivery(deps.db, job.eventId, nextAttemptAt);
-    await enqueueDelivery(deps.queue, { eventId: job.eventId, attempt: claim.attemptNumber }, delay);
+    await enqueueDelivery(
+      deps.queue,
+      { eventId: job.eventId, attempt: claim.attemptNumber },
+      { delayMs: delay, scheduledFor: nextAttemptAt },
+    );
     return 'deferred';
   }
 
@@ -151,7 +155,10 @@ export async function processDelivery(
     await enqueueDelivery(
       deps.queue,
       { eventId: job.eventId, attempt: claim.attemptNumber + 1 },
-      Math.max(0, disposition.nextAttemptAt.getTime() - now().getTime()),
+      {
+        delayMs: Math.max(0, disposition.nextAttemptAt.getTime() - now().getTime()),
+        scheduledFor: disposition.nextAttemptAt,
+      },
     );
   }
 

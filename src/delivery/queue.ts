@@ -35,23 +35,31 @@ export function createDeliveryQueue(
 }
 
 /**
- * Stable per attempt, so a re-enqueue after a crash collapses onto the same job.
+ * Stable for one database schedule, so a re-enqueue after a crash collapses
+ * onto the same job. A circuit deferral keeps the attempt number but moves the
+ * schedule, and therefore needs a different id from the active job.
  *
  * Separated with `-` rather than `:`, which BullMQ v6 rejects in a custom id.
- * The event id is a uuid of fixed length, so the trailing segment is still
- * unambiguously the attempt number.
+ * The event id is a uuid of fixed length, so the attempt and optional epoch
+ * segments remain unambiguous.
  */
-export function jobIdFor(eventId: string, attempt: number): string {
-  return `${eventId}-${attempt}`;
+export function jobIdFor(eventId: string, attempt: number, scheduledFor?: Date): string {
+  const schedule = scheduledFor === undefined ? '' : `-${scheduledFor.getTime()}`;
+  return `${eventId}-${attempt}${schedule}`;
+}
+
+export interface EnqueueOptions {
+  delayMs?: number;
+  scheduledFor?: Date;
 }
 
 export async function enqueueDelivery(
   queue: Queue<DeliveryJobData>,
   data: DeliveryJobData,
-  delayMs = 0,
+  options: EnqueueOptions = {},
 ): Promise<void> {
   await queue.add('deliver', data, {
-    jobId: jobIdFor(data.eventId, data.attempt),
-    delay: delayMs,
+    jobId: jobIdFor(data.eventId, data.attempt, options.scheduledFor),
+    delay: options.delayMs ?? 0,
   });
 }

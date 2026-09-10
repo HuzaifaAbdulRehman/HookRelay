@@ -33,12 +33,16 @@ let received: {
 
 /** Records what was enqueued instead of talking to Redis; scheduling is what matters here. */
 function fakeQueue() {
-  const added: { data: DeliveryJobData; delay: number }[] = [];
+  const added: { data: DeliveryJobData; delay: number; jobId: string }[] = [];
   return {
     added,
     queue: {
-      add: async (_name: string, data: DeliveryJobData, opts: { delay?: number }) => {
-        added.push({ data, delay: opts.delay ?? 0 });
+      add: async (
+        _name: string,
+        data: DeliveryJobData,
+        opts: { delay?: number; jobId: string },
+      ) => {
+        added.push({ data, delay: opts.delay ?? 0, jobId: opts.jobId });
       },
     } as unknown as Queue<DeliveryJobData>,
   };
@@ -276,6 +280,7 @@ describe('an open circuit', () => {
     expect((await findEventById(db, eventId))?.attemptCount).toBe(0);
     // But it is queued again rather than dropped.
     expect(added).toHaveLength(1);
+    expect(added[0]!.jobId).not.toBe(`${eventId}-1`);
   });
 
   it('opens after enough failures and closes on a success', async () => {

@@ -168,6 +168,7 @@ export async function replayEvent(
 export interface DueEvent {
   id: string;
   attemptNumber: number;
+  queueKeyAt: Date | null;
 }
 
 /**
@@ -184,8 +185,18 @@ export async function findDueEvents(
   graceMs = 30_000,
   leaseMs: number = CLAIM_LEASE_MS,
 ): Promise<DueEvent[]> {
-  const { rows } = await db.query<{ id: string; attempt_count: number }>(
-    `SELECT id, attempt_count
+  const { rows } = await db.query<{
+    id: string;
+    attempt_count: number;
+    queue_key_at: Date | null;
+  }>(
+    `SELECT id,
+            attempt_count,
+            CASE
+              WHEN status = 'failed' THEN next_attempt_at
+              WHEN status = 'delivering' THEN claimed_at
+              ELSE NULL
+            END AS queue_key_at
        FROM events
       WHERE (status = 'pending'    AND received_at    < now() - make_interval(secs => $2))
          OR (status = 'failed'     AND next_attempt_at <= now())
@@ -195,7 +206,11 @@ export async function findDueEvents(
     [limit, graceMs / 1000, leaseMs / 1000],
   );
 
-  return rows.map((row) => ({ id: row.id, attemptNumber: row.attempt_count + 1 }));
+  return rows.map((row) => ({
+    id: row.id,
+    attemptNumber: row.attempt_count + 1,
+    queueKeyAt: row.queue_key_at,
+  }));
 }
 
 export interface StoredAttempt {

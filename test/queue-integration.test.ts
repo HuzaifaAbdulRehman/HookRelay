@@ -40,7 +40,12 @@ describe('the delivery queue', () => {
   });
 
   it('holds a delayed job rather than making it available', async () => {
-    await enqueueDelivery(queue, { eventId: 'event-1', attempt: 2 }, 60_000);
+    const scheduledFor = new Date(Date.now() + 60_000);
+    await enqueueDelivery(
+      queue,
+      { eventId: 'event-1', attempt: 2 },
+      { delayMs: 60_000, scheduledFor },
+    );
 
     expect(await queue.getWaitingCount()).toBe(0);
     expect(await queue.getDelayedCount()).toBe(1);
@@ -61,5 +66,19 @@ describe('the delivery queue', () => {
 
     expect(await queue.getJobCountByTypes('waiting', 'delayed')).toBe(2);
     expect(jobIdFor('event-1', 1)).not.toBe(jobIdFor('event-1', 2));
+  });
+
+  it('keeps a deferred run separate from the active attempt', async () => {
+    const scheduledFor = new Date(Date.now() + 60_000);
+
+    await enqueueDelivery(queue, { eventId: 'event-1', attempt: 1 });
+    await enqueueDelivery(
+      queue,
+      { eventId: 'event-1', attempt: 1 },
+      { delayMs: 60_000, scheduledFor },
+    );
+
+    expect(await queue.getJobCountByTypes('waiting', 'delayed')).toBe(2);
+    expect(jobIdFor('event-1', 1, scheduledFor)).not.toBe(jobIdFor('event-1', 1));
   });
 });

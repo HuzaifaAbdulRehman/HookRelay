@@ -18,14 +18,19 @@ export interface SweeperDeps {
  * not: ingest, a scheduled retry, and a worker that died holding a claim. The
  * database is the source of truth, and this is what reconciles Redis back to it.
  *
- * Enqueuing is safe to repeat because the job id is derived from the event and
- * attempt, so anything already queued collapses onto the existing job.
+ * Enqueuing is safe to repeat because the job id is derived from the event,
+ * attempt and database schedule, so anything already queued for that schedule
+ * collapses onto the existing job.
  */
 export async function sweepOnce(deps: SweeperDeps): Promise<number> {
   const due = await findDueEvents(deps.db, deps.batchSize ?? 100, deps.graceMs);
 
   for (const event of due) {
-    await enqueueDelivery(deps.queue, { eventId: event.id, attempt: event.attemptNumber });
+    await enqueueDelivery(
+      deps.queue,
+      { eventId: event.id, attempt: event.attemptNumber },
+      event.queueKeyAt === null ? {} : { scheduledFor: event.queueKeyAt },
+    );
   }
 
   return due.length;
