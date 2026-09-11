@@ -57,6 +57,9 @@ uses a URL-based automation token.
 
 To run everything in containers instead: `docker compose --profile app up -d --wait`.
 
+For the complete local GitHub to HookRelay to Devonoma flow, see
+[the local runbook](docs/run-local-end-to-end.md).
+
 ## What is interesting here
 
 **Containing SSRF.** Making an HTTP request to a URL somebody else chose is the definition
