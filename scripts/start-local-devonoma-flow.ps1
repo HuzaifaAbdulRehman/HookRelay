@@ -62,6 +62,25 @@ function Wait-ForPort([int]$port, [string]$name) {
   throw "$name did not start on port $port."
 }
 
+function Install-Dependencies([string]$root) {
+  $nodeModules = Join-Path $root 'node_modules'
+
+  Push-Location $root
+  try {
+    if (Test-Path -LiteralPath $nodeModules) {
+      & npm.cmd install --package-lock=false
+    } else {
+      & npm.cmd ci
+    }
+
+    if ($LASTEXITCODE -ne 0) {
+      throw "Dependency installation failed in $root."
+    }
+  } finally {
+    Pop-Location
+  }
+}
+
 function Stop-RememberedProcess([int]$id) {
   if ($id -le 0) {
     return
@@ -121,8 +140,7 @@ Set-EnvValue $devonomaEnv 'WEBHOOK_SECRET' $state.signingSecret
 
 Push-Location $hookRelayRoot
 try {
-  & npm.cmd ci
-  if ($LASTEXITCODE -ne 0) { throw 'HookRelay dependency installation failed.' }
+  Install-Dependencies $hookRelayRoot
   & docker compose up -d --wait
   if ($LASTEXITCODE -ne 0) { throw 'HookRelay containers did not start.' }
   & npm.cmd run migrate:up
@@ -135,8 +153,7 @@ Push-Location $devonomaRoot
 $previousDatabaseUrl = $env:DATABASE_URL
 try {
   $env:DATABASE_URL = 'postgres://devonoma:devonoma@localhost:5433/devonoma'
-  & npm.cmd ci
-  if ($LASTEXITCODE -ne 0) { throw 'Devonoma dependency installation failed.' }
+  Install-Dependencies $devonomaRoot
   & docker compose up -d --wait
   if ($LASTEXITCODE -ne 0) { throw 'Devonoma containers did not start.' }
   & npm.cmd run migrate
