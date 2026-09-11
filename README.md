@@ -1,9 +1,17 @@
 # HookRelay
 
-Reliable webhook delivery. It accepts events, stores them, and keeps retrying until they
-land, with a log of every attempt and a dead-letter queue for the ones that never do.
+Reliable webhook delivery for services that cannot afford to lose an event. HookRelay accepts
+the provider request, records the exact signed payload, then delivers it independently with
+retry, dead letters, and a replayable audit trail.
 
-![The delivery log for a failing event, showing the retry ladder and a replay button](docs/dashboard-event.png)
+## What it does
+
+```text
+Provider -> HookRelay ingest -> PostgreSQL -> retry worker -> your endpoint
+```
+
+The provider gets a fast `202`. Your endpoint gets a signed request, a stable idempotency key,
+and retries when a transient failure gets in the way.
 
 ## Why
 
@@ -18,7 +26,7 @@ Tested against real GitHub, not only a local harness: a webhook pointed at a tun
 signing a 7.4 KB payload with the endpoint's secret, HookRelay verifying that signature and
 answering 202.
 
-## Running it
+## Quick start
 
 Needs Node 24+ and Docker.
 
@@ -41,6 +49,11 @@ curl -sX POST localhost:3000/endpoints \
 That returns a signing secret, once. Paste the ingest URL into a provider's webhook
 settings and the secret into its secret field. The dashboard is at `/dashboard`, using the
 same API key as the password.
+
+![HookRelay dashboard showing one delivered event and a masked endpoint ingest path](docs/dashboard-overview.png)
+
+The dashboard never displays an endpoint's query-string values. That matters when an endpoint
+uses a URL-based automation token.
 
 To run everything in containers instead: `docker compose --profile app up -d --wait`.
 
@@ -85,7 +98,7 @@ built.
 | | |
 | --- | --- |
 | `npm run dev` | run with reload |
-| `npm test` | 210 tests, needs the database up |
+| `npm test` | 213 tests, needs the database up |
 | `npm run typecheck` | types only |
 | `npm run migrate:up` / `:down` | apply or roll back migrations |
 | `npm run bench:hol` | reproduce the head-of-line measurement |

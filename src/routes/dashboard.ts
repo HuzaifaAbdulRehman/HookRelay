@@ -78,7 +78,22 @@ function ago(date: Date): string {
   return `${Math.round(seconds / 86_400)}d ago`;
 }
 
+function destinationLabel(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.host}${url.pathname}${url.search === '' ? '' : '?…'}`;
+  } catch {
+    return value;
+  }
+}
+
 export const dashboardRoutes: FastifyPluginAsync<DashboardOptions> = async (app, opts) => {
+  // The dashboard uses a plain HTML form for replay. Parse its small, fixed
+  // form body locally instead of adding a general form-body dependency.
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_request, body, done) => {
+    done(null, body);
+  });
+
   app.addHook('onRequest', async (request, reply) => {
     if (!authorised(request, opts.apiKey)) {
       return reply
@@ -96,39 +111,45 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardOptions> = async (app,
       listEvents(opts.db, { limit: 25 }),
     ]);
 
-    const endpointRows = endpoints
+    const endpointRows = (items: typeof endpoints) => items
       .map(
         (endpoint) => html`<tr>
           <td><a href="/dashboard/endpoints/${endpoint.id}">${endpoint.name}</a></td>
-          <td class="mono">${endpoint.destinationUrl}</td>
+          <td class="mono"><span class="destination" title="${destinationLabel(endpoint.destinationUrl)}">${destinationLabel(endpoint.destinationUrl)}</span></td>
           <td>${endpoint.isActive ? 'active' : 'disabled'}</td>
-          <td class="mono">/hook/${endpoint.id}</td>
+          <td class="mono"><span class="ingest-path">/hook/••••••••</span></td>
         </tr>`,
       )
       .join('');
+    const endpointTable = (rows: string) =>
+      `<table><tr><th>Name</th><th>Destination</th><th>State</th><th>Ingest path</th></tr>${rows}</table>`;
+    const visibleEndpointRows = endpointRows(endpoints.slice(0, 4));
+    const remainingEndpointRows = endpointRows(endpoints.slice(4));
 
-    const eventRows = recent.map((event) => eventRow(event)).join('');
+    const eventRows = (items: typeof recent) => items.map((event) => eventRow(event)).join('');
+    const eventTable = (rows: string) =>
+      `<table><tr><th>Status</th><th>Delivery id</th><th>Attempts</th><th>Size</th><th>Received</th></tr>${rows}</table>`;
+    const visibleEventRows = eventRows(recent.slice(0, 3));
+    const remainingEventRows = eventRows(recent.slice(3));
 
     return reply.type('text/html').send(
       layout(
         'Overview',
-        html`<h1>Overview</h1>
-          <p class="sub">
-            ${counts['dlq'] ?? 0} dead-lettered, ${counts['failed'] ?? 0} retrying,
-            ${counts['delivered'] ?? 0} delivered
-          </p>
-          <h2>Endpoints</h2>
-          ${endpoints.length === 0
-            ? raw('<p class="empty">No endpoints yet. Create one with POST /endpoints.</p>')
-            : raw(
-                `<table><tr><th>Name</th><th>Destination</th><th>State</th><th>Ingest path</th></tr>${endpointRows}</table>`,
-              )}
-          <h2>Recent events</h2>
+        html`<section class="dashboard-head"><p class="eyebrow">DELIVERY CONTROL</p><h1>Delivery overview</h1>
+          <p class="sub">Monitor inbound webhooks and recover the deliveries that need attention.</p></section>
+          <div class="metadata"><div class="metric"><span>Delivered</span><strong>${counts['delivered'] ?? 0} <small>events</small></strong></div><div class="metric"><span>Awaiting retry</span><strong>${counts['failed'] ?? 0} <small>events</small></strong></div><div class="metric"><span>Dead lettered</span><strong>${counts['dlq'] ?? 0} <small>events</small></strong></div><div class="metric"><span>Endpoints</span><strong>${endpoints.length} <small>${endpoints.length === 1 ? 'route' : 'routes'}</small></strong></div></div>
+          <section class="panel"><div class="panel-head"><h2>Recent events</h2><span class="panel-meta">${recent.length} shown</span></div><div class="panel-body">
           ${recent.length === 0
-            ? raw('<p class="empty">Nothing received yet.</p>')
+            ? raw('<div class="empty"><p><strong>Waiting for the first delivery</strong><span>Send a signed request to a registered ingest path to record it here.</span></p></div>')
             : raw(
-                `<table><tr><th>Status</th><th>Delivery id</th><th>Attempts</th><th>Size</th><th>Received</th></tr>${eventRows}</table>`,
-              )}`,
+                `${eventTable(visibleEventRows)}${remainingEventRows === '' ? '' : `<details class="more"><summary>Show ${recent.length - 3} more event${recent.length === 4 ? '' : 's'}</summary>${eventTable(remainingEventRows)}</details>`}`,
+              )}</div></section>
+          <section class="panel"><div class="panel-head"><h2>Endpoints</h2><span class="panel-meta">${endpoints.length} registered</span></div><div class="panel-body">
+          ${endpoints.length === 0
+            ? raw('<div class="empty"><p><strong>No endpoints registered</strong><span>Create one with POST /endpoints to start receiving deliveries.</span></p></div>')
+            : raw(
+                `${endpointTable(visibleEndpointRows)}${remainingEndpointRows === '' ? '' : `<details class="more"><summary>Show ${endpoints.length - 4} more route${endpoints.length === 5 ? '' : 's'}</summary>${endpointTable(remainingEndpointRows)}</details>`}`,
+              )}</div></section>`,
       ),
     );
   });
@@ -142,13 +163,14 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardOptions> = async (app,
     return reply.type('text/html').send(
       layout(
         'Endpoint',
-        html`<h1>Endpoint</h1>
-          <p class="sub mono">${request.params.id}</p>
+        html`<section class="hero"><p class="eyebrow">ENDPOINT HISTORY</p><h1>Delivery<br>record.</h1>
+          <p class="sub mono">${request.params.id}</p></section>
+          <section class="panel"><div class="panel-head"><h2>Events</h2><span class="system-status">Latest 100</span></div><div class="panel-body">
           ${events.length === 0
             ? raw('<p class="empty">No events for this endpoint yet.</p>')
             : raw(
                 `<table><tr><th>Status</th><th>Delivery id</th><th>Attempts</th><th>Size</th><th>Received</th></tr>${rows}</table>`,
-              )}`,
+              )}</div></section>`,
       ),
     );
   });
@@ -177,24 +199,23 @@ export const dashboardRoutes: FastifyPluginAsync<DashboardOptions> = async (app,
     return reply.type('text/html').send(
       layout(
         'Event',
-        html`<h1>Event ${raw(badge(event.status))}</h1>
-          <p class="sub mono">${event.id}</p>
-          <table>
+        html`<section class="hero"><p class="eyebrow">DELIVERY INSPECTION</p><h1>Event ${raw(badge(event.status))}</h1>
+          <p class="sub mono">${event.id}</p></section>
+          <section class="panel"><div class="panel-head"><h2>Event details</h2><span class="system-status">Stored safely</span></div><div class="panel-body"><table>
             <tr><th>Delivery id</th><td class="mono">${event.providerEventId ?? 'none'}</td></tr>
             <tr><th>Attempts</th><td>${event.attemptCount}</td></tr>
             <tr><th>Received</th><td>${event.receivedAt.toISOString()}</td></tr>
             <tr><th>Payload</th><td>${event.body.length} bytes</td></tr>
-          </table>
-          <h2>Delivery log</h2>
-          ${raw(ladder(attempts))}
+          </table></div></section>
+          <section class="panel"><div class="panel-head"><h2>Delivery log</h2><span class="system-status">Attempt history</span></div><div class="panel-body"><div style="padding:16px 24px">${raw(ladder(attempts))}</div>
           ${attempts.length === 0
             ? raw('<p class="empty">No attempts recorded yet.</p>')
             : raw(
                 `<table><tr><th>#</th><th>Result</th><th>Status</th><th>Took</th><th>Error</th></tr>${attemptRows}</table>`,
-              )}
+              )}</div></section>
           ${replayable
             ? raw(
-                `<h2>Replay</h2><form method="post" action="/dashboard/events/${escape(event.id)}/replay"><button type="submit">Replay this event</button></form>`,
+                `<section class="panel" style="margin-top:32px"><div class="panel-head"><h2>Replay</h2><form method="post" action="/dashboard/events/${escape(event.id)}/replay"><input type="hidden" name="replay" value="1"><button type="submit">Replay this event</button></form></div></section>`,
               )
             : raw('')}`,
       ),

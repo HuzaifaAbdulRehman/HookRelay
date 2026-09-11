@@ -92,7 +92,7 @@ describe('the dashboard', () => {
     );
   });
 
-  it('renders an overview with an endpoint and its ingest path', async () => {
+  it('renders an overview without exposing its ingest capability', async () => {
     const endpoint = await createEndpoint(db, {
       name: 'github-prod',
       destinationUrl: 'https://example.com/hook',
@@ -104,7 +104,8 @@ describe('the dashboard', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
     expect(res.body).toContain('github-prod');
-    expect(res.body).toContain(`/hook/${endpoint.id}`);
+    expect(res.body).toContain('/hook/••••••••');
+    expect(res.body).not.toContain(`/hook/${endpoint.id}`);
   });
 
   it('never renders a signing secret', async () => {
@@ -199,7 +200,8 @@ describe('the dashboard', () => {
     const posted = await app.inject({
       method: 'POST',
       url: `/dashboard/events/${event.id}/replay`,
-      headers: { ...basic, host: 'localhost:3000', origin: 'http://localhost:3000' },
+      headers: { ...basic, host: 'localhost:3000', origin: 'http://localhost:3000', 'content-type': 'application/x-www-form-urlencoded' },
+      payload: 'replay=1',
     });
 
     expect(posted.statusCode).toBe(303);
