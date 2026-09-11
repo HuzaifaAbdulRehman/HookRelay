@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-  [switch]$ResetTimeline
+  [switch]$ResetTimeline,
+  [switch]$LocalOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -83,8 +84,10 @@ function Stop-RememberedProcess([int]$id) {
 
 Require-Command docker
 Require-Command npm.cmd
-Require-Command cloudflared
-Require-Command gh
+if (-not $LocalOnly) {
+  Require-Command cloudflared
+  Require-Command gh
+}
 
 if (-not (Test-Path $devonomaRoot)) {
   throw "Devonoma was not found beside HookRelay at $devonomaRoot."
@@ -186,6 +189,16 @@ Wait-ForPort 3100 'Devonoma'
 
 if ($null -ne $devonomaNextEnvironment) {
   [System.IO.File]::WriteAllText($devonomaNextEnvironmentPath, $devonomaNextEnvironment)
+}
+
+$state | ConvertTo-Json | Set-Content -LiteralPath $statePath
+
+if ($LocalOnly) {
+  Write-Host 'Local HookRelay -> Devonoma flow is running.' -ForegroundColor Green
+  Write-Host 'HookRelay dashboard: http://127.0.0.1:3200/dashboard'
+  Write-Host 'Devonoma timeline:    http://127.0.0.1:3100'
+  Write-Host 'Run .\scripts\send-local-demo-push.ps1 to add a local demo event.'
+  exit
 }
 
 Remove-Item -LiteralPath $tunnelOutput, $tunnelError -Force -ErrorAction SilentlyContinue
